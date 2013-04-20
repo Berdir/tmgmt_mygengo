@@ -279,6 +279,7 @@ class TMGMTGengoConnector {
       ), $data);
 
       $url = url($url, array('query' => $query, 'absolute' => TRUE));
+      debug($options, $url);
       $response = drupal_http_request($url, $options);
     }
     else {

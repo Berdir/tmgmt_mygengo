@@ -8,28 +8,24 @@
 /**
  * Basic tests for the Gengo translator.
  */
-class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
+abstract class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
 
   /**
    * @var TMGMTTranslator $translator
    */
   protected $translator;
 
-  /**
-   * Implements getInfo().
-   */
-  static function getInfo() {
-    return array(
-      'name' => t('Gengo Translator tests'),
-      'description' => t('Tests the Gengo translator plugin integration.'),
-      'group' => t('Translation Management'),
-    );
-  }
+  protected $public_key;
+  protected $private_key;
 
   function setUp() {
-    parent::setUp(array('tmgmt_ui', 'tmgmt_mygengo', 'tmgmt_mygengo_test'));
+    $modules = func_get_args();
+    if (isset($modules[0]) && is_array($modules[0])) {
+      $modules = $modules[0];
+    }
+    $modules = array_merge(array('tmgmt_ui', 'tmgmt_mygengo', 'tmgmt_test'), $modules);
+    parent::setUp($modules);
     $this->translator = tmgmt_translator_load('mygengo');
-    variable_set('tmgmt_mygengo_use_mock_service', TRUE);
   }
 
   /**
@@ -58,13 +54,6 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $this->translator->settings['api_private_key'] = 'wrong key';
     $this->translator->save();
 
-    // Make sure the translator returns the correct supported target languages.
-    $languages = $job->getTranslator()->getSupportedTargetLanguages('en');
-    $this->assertTrue(isset($languages['de']));
-    $this->assertTrue(isset($languages['es']));
-    $this->assertFalse(isset($languages['it']));
-    $this->assertFalse(isset($languages['en']));
-
     // @todo Actually check if the api key is valid.
     $this->assertTrue($job->isTranslatable());
     $job->requestTranslation();
@@ -74,14 +63,22 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $messages = $job->getMessages();
     $message = end($messages);
     $this->assertEqual('error', $message->type);
-    $this->assert(strpos($message->getMessage(), 'Job has been rejected') !== FALSE,
-      t('Job should be rejected as we provided wrong api key.'));
+    /*$this->assert(strpos($message->getMessage(), 'Job has been rejected') !== FALSE,
+      t('Job should be rejected as we provided wrong api key.'));*/
 
     // Save a correct api key.
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
     $this->translator->save();
     $this->assertTrue($job->isTranslatable());
+
+    // Make sure the translator returns the correct supported target languages.
+    $languages = $job->getTranslator()->getSupportedTargetLanguages('en');
+    debug($languages);
+    $this->assertTrue(isset($languages['de']));
+    $this->assertTrue(isset($languages['es']));
+    $this->assertFalse(isset($languages['it']));
+    $this->assertFalse(isset($languages['en']));
 
     // Note that requesting translation goes with default
     // gengo_auto_approve = 1
@@ -92,22 +89,7 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
       $this->assertTrue($item->isActive());
     }
 
-    // Create a gengo response of translated and approved job.
-    $post['job'] = json_encode(tmgmt_mygengo_test_build_response_job(
-      'Hello world',
-      'Hallo Welt',
-      'approved',
-      'standard',
-      implode('][', array($job->tjid, $item->tjiid, 'wrapper')),
-      $item->data['wrapper']['#label']
-    ));
-
-    $action = url('tmgmt_mygengo_callback', array('absolute' => TRUE));
-    $out = $this->curlExec(array(CURLOPT_URL => $action, CURLOPT_POST => TRUE, CURLOPT_POSTFIELDS => $post));
-
-    // Response should be empty if everything went ok.
-    $this->assertResponse(200);
-    $this->assertTrue(empty($out));
+    $this->invokeCallback($job, $item);
 
     // Clear job item caches.
     entity_get_controller('tmgmt_job_item')->resetCache();
@@ -178,13 +160,15 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $this->assertEqual($jobs[$no_label_key]->slug, 'No label');
   }
 
+  abstract function invokeCallback($job, $item);
+
   function testJobItemRejection() {
 
     $this->loginAsAdmin();
 
     // Make sure we have correct keys.
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
 
     $this->translator->save();
 
@@ -260,8 +244,8 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $this->loginAsAdmin();
 
     // Make sure we have correct keys.
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
 
     $this->translator->save();
 
@@ -325,8 +309,8 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $this->loginAsAdmin();
 
     // Make sure we have correct keys.
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
 
     $this->translator->save();
 
@@ -391,8 +375,9 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
 
     // Create job with two job items.
 
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    // Make sure we have correct keys.
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
     $this->translator->save();
     $job = $this->createJob();
     $job->settings['quality'] = 'machine';
@@ -451,8 +436,9 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
 
   function testPollJob() {
     $this->loginAsAdmin();
-    $this->translator->settings['api_public_key'] = 'correct key';
-    $this->translator->settings['api_private_key'] = 'correct key';
+    // Make sure we have correct keys.
+    $this->translator->settings['api_public_key'] = $this->public_key;
+    $this->translator->settings['api_private_key'] = $this->private_key;
     $this->translator->save();
     $job = $this->createJob();
     $job->settings['quality'] = 'standard';
@@ -497,5 +483,97 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     // Body should be untouched.
     $this->assertTrue(empty($item_data['body']['#translation']));
     $this->assertEqual($item_data['body']['#status'], TMGMT_DATA_ITEM_STATE_PENDING);
+  }
+}
+
+/**
+ * Mock tests for the Gengo translator.
+ */
+class TMGMTMyGengoMockTestCase extends TMGMTMyGengoTestCase {
+
+  /**
+   * Implements getInfo().
+   */
+  static function getInfo() {
+    return array(
+      'name' => t('Gengo Translator tests (mocked)'),
+      'description' => t('Tests the Gengo translator plugin integration using a mock backend.'),
+      'group' => t('Translation Management'),
+    );
+  }
+
+  function setUp() {
+    parent::setUp(array('tmgmt_mygengo_test'));
+    variable_set('tmgmt_mygengo_use_mock_service', TRUE);
+    $this->public_key = 'correct key';
+    $this->private_key = 'correct key';
+  }
+
+  public function invokeCallback($job, $item) {
+    // Create a gengo response of translated and approved job.
+    $post['job'] = json_encode(tmgmt_mygengo_test_build_response_job(
+      'Hello world',
+      'Hallo Welt',
+      'approved',
+      'standard',
+      implode('][', array($job->tjid, $item->tjiid, 'wrapper')),
+      $item->data['wrapper']['#label']
+    ));
+
+    $action = url('tmgmt_mygengo_callback', array('absolute' => TRUE));
+    $out = $this->curlExec(array(CURLOPT_URL => $action, CURLOPT_POST => TRUE, CURLOPT_POSTFIELDS => $post));
+
+    // Response should be empty if everything went ok.
+    $this->assertResponse(200);
+    $this->assertTrue(empty($out));
+  }
+}
+
+
+/**
+ * Sandbox tests for the Gengo translator.
+ */
+class TMGMTMyGengoSandboxTestCase extends TMGMTMyGengoTestCase {
+
+  protected $email;
+  protected $password;
+
+  /**
+   * Implements getInfo().
+   */
+  static function getInfo() {
+    return array(
+      'name' => t('Gengo Translator tests (sandbox)'),
+      'description' => t('Tests the Gengo translator plugin integration using the sandbox backend.'),
+      'group' => t('Translation Management'),
+    );
+  }
+
+  function setUp() {
+    $this->public_key = variable_get('tmgmt_mygengo_test_sandbox_public_key');
+    $this->private_key = variable_get('tmgmt_mygengo_test_sandbox_private_key');
+
+    $this->email = variable_get('tmgmt_mygengo_test_sandbox_email');
+    $this->password = variable_get('tmgmt_mygengo_test_sandbox_password');
+
+    parent::setUp();
+    $this->translator->settings['use_sandbox'] = TRUE;
+    $this->translator->save();
+
+  }
+
+  public function invokeCallback($job, $item) {
+    $post = array('login_email' => $this->email, 'login_password' => $this->password);
+    $action = 'https://sandbox.gengo.com/auth/form/login/';
+    $out = $this->curlExec(array(CURLOPT_URL => $action));
+    $out = $this->curlExec(array(CURLOPT_URL => $action, CURLOPT_POST => TRUE, CURLOPT_POSTFIELDS => $post, CURLOPT_HTTPHEADER => array('Content-Type' => 'application/x-www-form-urlencoded')));
+    // Replace original page output with new output from redirected page(s).
+    if ($new = $this->checkForMetaRefresh()) {
+      $out = $new;
+    }
+    $this->verbose('POST request to: ' . $action .
+               '<hr />Ending URL: ' . $this->getUrl() .
+               '<hr />Fields: ' . highlight_string('<?php ' . var_export($post, TRUE), TRUE) .
+               '<hr />' . $out);
   }
 }

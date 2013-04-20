@@ -153,7 +153,15 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     $results = array();
 
     $connector = new TMGMTGengoConnector($translator);
-    $response = $connector->getLanguages($translator->mapToRemoteLanguage($source_language));
+    try {
+      $response = $connector->getLanguages($translator->mapToRemoteLanguage($source_language));
+    }
+    catch (TMGMTException $e) {
+      watchdog_exception('tmgmt', $e);
+      drupal_set_message($e->getMessage(), 'error');
+      return $results;
+    }
+
     foreach ($response as $target) {
       $results[$translator->mapToLocalLanguage($target->lc)] = $translator->mapToLocalLanguage($target->lc);
     }
