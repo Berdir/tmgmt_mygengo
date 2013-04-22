@@ -64,3 +64,23 @@ function tmgmt_mygengo_update_7002() {
     db_add_field('tmgmt_mygengo_mappings', 'gorder_id', $schema['tmgmt_mygengo_mappings']['fields']['gorder_id']);
   }
 }
+
+/**
+ * Migrates gengo mapping data to the core tmgmt mapping.
+ */
+function tmgmt_mygengo_update_7003() {
+  $select = db_select('tmgmt_mygengo_mappings', 'm')->fields('m');
+  $old_mappings = $select->execute()->fetchAll();
+
+  foreach ($old_mappings as $mapping) {
+    $data = array(
+      'tjid' => $mapping->tjid,
+      'data_item_key' => $mapping->data_item_key,
+      'remote_identifier_1' => $mapping->gorder_id,
+      'remote_identifier_2' => $mapping->gjid,
+    );
+    drupal_write_record('tmgmt_remote', $data);
+  }
+
+  db_drop_table('tmgmt_mygengo_mappings');
+}

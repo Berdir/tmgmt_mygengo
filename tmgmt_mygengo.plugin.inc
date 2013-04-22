@@ -18,6 +18,9 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
   protected $serviceComment;
 
 
+  const GENGO_ORDER_ID_FIELD = 'remote_identifier_1';
+  const GENGO_JOB_ID_FIELD = 'remote_identifier_2';
+
   /**
    * Implements TMGMTDefaultTranslatorPluginController::getDefaultRemoteLanguagesMappings().
    */
@@ -302,7 +305,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         'tjid' => $job->tjid,
         // Yes, this is not a joke, they really return string value "NULL" in
         // case of a machine translation.
-        'gjid' => $response_job->job_id == 'NULL' ? 0 : $response_job->job_id,
+        self::GENGO_JOB_ID_FIELD => $response_job->job_id == 'NULL' ? 0 : $response_job->job_id,
         'data_item_key' => tmgmt_ensure_keys_string($key),
       );
     }
@@ -311,8 +314,6 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     // than in case of regular translation cycle.
     $this->saveGengoMappings($mappings);
   }
-
-  ///// Mappings - will be removed/refactored
 
   /**
    * Saves mapping with tmgmt data item and gengo job.
@@ -325,15 +326,15 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    */
   public function saveGengoMappings(array $mappings) {
     foreach ($mappings as $mapping) {
-      $select = db_select('tmgmt_mygengo_mappings', 'm')->fields('m', array('tjid'));
+      $select = db_select('tmgmt_remote', 'm')->fields('m', array('tjid'));
       $select->condition('tjid', $mapping['tjid']);
-      $select->condition('gjid', $mapping['gjid']);
+      $select->condition(self::GENGO_JOB_ID_FIELD, $mapping[self::GENGO_JOB_ID_FIELD]);
 
       if ($select->execute()->fetchField()) {
-        drupal_write_record('tmgmt_mygengo_mappings', $mapping, array('tjid', 'gjid'));
+        drupal_write_record('tmgmt_remote', $mapping, array('tjid', self::GENGO_JOB_ID_FIELD));
       }
       else {
-        drupal_write_record('tmgmt_mygengo_mappings', $mapping);
+        drupal_write_record('tmgmt_remote', $mapping);
       }
     }
   }
@@ -352,9 +353,9 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
   protected function initGengoMapping(TMGMTJob $job, $gorder_id) {
     $data = array(
       'tjid' => $job->tjid,
-      'gorder_id' => $gorder_id,
+      self::GENGO_ORDER_ID_FIELD => $gorder_id,
     );
-    drupal_write_record('tmgmt_mygengo_mappings', $data);
+    drupal_write_record('tmgmt_remote', $data);
   }
 
   /**
@@ -372,10 +373,10 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     $mapped_jobs_count = $select->execute()->fetchField();
 
     // Search for placeholder item.
-    $select = db_select('tmgmt_mygengo_mappings', 'm');
-    $select->fields('m', array('gorder_id'));
+    $select = db_select('tmgmt_remote', 'm');
+    $select->fields('m', array(self::GENGO_ORDER_ID_FIELD));
     $select->condition('tjid', $job->tjid);
-    $select->condition('gjid', '0');
+    $select->condition(self::GENGO_JOB_ID_FIELD, 0);
 
     $connector = new TMGMTGengoConnector($job->getTranslator());
 
@@ -417,15 +418,15 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
 
       // Remove the placeholder record if we got mappings for all the jobs.
       if ($mapped_jobs_count == $response->order->total_jobs) {
-        db_delete('tmgmt_mygengo_mappings')->condition('gorder_id', $gorder_id)->execute();
+        db_delete('tmgmt_remote')->condition(self::GENGO_ORDER_ID_FIELD, $gorder_id)->execute();
       }
 
       $mappings = array();
       foreach ($gengo_job_ids as $gengo_job_id) {
         $mappings[] = array(
           'tjid' => $job->tjid,
-          'gjid' => $gengo_job_id,
-          'gorder_id' => $gorder_id,
+          self::GENGO_JOB_ID_FIELD => $gengo_job_id,
+          self::GENGO_ORDER_ID_FIELD => $gorder_id,
         );
       }
       // Add intial records into the table
@@ -446,7 +447,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     foreach ($response->jobs as $key => $response_job) {
       $mappings[] = array(
         'tjid' => $job->tjid,
-        'gjid' => $response_job->job_id,
+        self::GENGO_JOB_ID_FIELD => $response_job->job_id,
         'data_item_key' => $response_job->custom_data,
       );
 
@@ -470,7 +471,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Array of gengo job ids.
    */
   public function getGengoJobIds($tjid) {
-    $select = db_select('tmgmt_mygengo_mappings', 'm')->fields('m', array('gjid'));
+    $select = db_select('tmgmt_remote', 'm')->fields('m', array(self::GENGO_JOB_ID_FIELD));
     $select->condition('tjid', $tjid);
     $select->condition('gjid', '0', '>');
 
@@ -487,7 +488,10 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Array of mapping records keyd by gengo job ids.
    */
   public function getMappedGengoData($tjid) {
-    $select = db_select('tmgmt_mygengo_mappings', 'm')->fields('m');
+    $select = db_select('tmgmt_remote', 'm');
+    $select->fields('m', array('tjid', 'data_item_key'));
+    $select->addField('m', self::GENGO_ORDER_ID_FIELD, 'gorder_id');
+    $select->addField('m', self::GENGO_JOB_ID_FIELD, 'gjid');
     $select->condition('tjid', $tjid);
     $select->condition('data_item_key', '', '!=');
 
