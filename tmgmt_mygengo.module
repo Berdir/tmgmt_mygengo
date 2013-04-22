@@ -257,23 +257,35 @@ function _tmgmt_mygengo_poll_submit($form, &$form_state) {
  * Process response from mygengo.
  */
 function tmgmt_mygengo_callback() {
-
   $data = json_decode($_POST['job']);
-  $keys = explode('][', $data->custom_data);
-  $tjid = array_shift($keys);
-
+  list($tjid, $tjiid, $data_item_key) = explode('][', $data->custom_data, 3);
   $job = tmgmt_job_load($tjid);
   if (!$job) {
     watchdog('tmgmt_mygengo', 'Failed to load translation job for @data', array('@data' => var_export($data, TRUE)), WATCHDOG_WARNING);
     return;
   }
 
+  // Create a mapping for this job if we don't have one yet.
+  if (!entity_get_controller('tmgmt_remote')->loadByLocalData($tjid, $tjiid, $data_item_key)) {
+    $item = tmgmt_job_item_load($tjiid);
+    // @todo: Pre-create mappings for the order so that we have the order id?
+    $item->addRemoteMapping($data_item_key, NULL, array(
+      'remote_identifier_2' => $data->job_id,
+      'word_count' => $data->unit_count,
+      'remote_data' => array(
+        'credits' => $data->credits,
+        'tier' => $data->tier,
+      ),
+      // @todo: Add remote_url.
+    ));
+  }
+
   /**
    * @var TMGMTMyGengoTranslatorPluginController $mygengo
    */
   $mygengo = $job->getTranslator()->getController();
-  $mygengo->saveTranslation($job, $keys, $data);
-  $mygengo->mapGengoJobs($job);
+  // Prepend the job item id.
+  $mygengo->saveTranslation($job, $tjiid . '][' . $data_item_key, $data);
 
   print '';
 }

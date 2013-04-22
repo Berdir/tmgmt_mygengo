@@ -80,15 +80,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $this->setServiceComment($job->settings['comment']);
       }
 
-      $response = $this->sendJob($job);
-
-      // If we already receive jobs, process them.
-      if (!empty($response->jobs)) {
-        $this->processGengoJobsUponTranslationRequest($job, $response->jobs);
-      }
-      elseif(isset($response->order_id)) {
-        $this->initGengoMapping($job, $response->order_id);
-      }
+       $this->sendJob($job);
 
       $job->submitted(t('Job has been submitted.'));
     }
@@ -219,7 +211,15 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
       return $connector->getQuote($translations);
     }
     else {
-      return $connector->submitJob($translations);
+      $response = $connector->submitJob($translations);
+      // If we already receive jobs, process them.
+      if (!empty($response->jobs)) {
+        $this->processGengoJobsUponTranslationRequest($job, $response->jobs);
+      }
+      elseif (isset($response->order_id)) {
+        $this->initGengoMapping($job, $response->order_id, $translations);
+      }
+      return $response;
     }
   }
 
@@ -235,7 +235,12 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    */
   public function saveTranslation(TMGMTJob $job, $keys, $data) {
     if ($data->status == 'approved' || $data->status == 'reviewable') {
-      $keys = tmgmt_ensure_keys_array($keys);
+      // If the status is approved or reviewable, we expect a body_tgt property,
+      // abort and log if it doesn't exist.
+      if (!isset($data->body_tgt)) {
+        $job->addMessage('Callback called for @key and status @status without translation.', array('@key' => $data->custom_data, '@status' => $data->status));
+        return;
+      }
       $job->addTranslatedData(array('#text' => $data->body_tgt), $keys);
 
       // Look for duplicated strings that were saved with a mapping to this key.
@@ -349,13 +354,16 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Job for which to initiate mappings with remote jobs.
    * @param int $gorder_id
    *   Gengo job id.
+   * @param array $translations
+   *   Array of requested translations.
    */
-  protected function initGengoMapping(TMGMTJob $job, $gorder_id) {
-    $data = array(
-      'tjid' => $job->tjid,
-      self::GENGO_ORDER_ID_FIELD => $gorder_id,
-    );
-    drupal_write_record('tmgmt_remote', $data);
+  protected function initGengoMapping(TMGMTJob $job, $gorder_id, array $translations) {
+    $items = $job->getItems();
+    foreach ($translations as $key => $translation) {
+      // Extract job item id and data item key.
+      list(, $tjiid, $data_item_key) = explode('][', $key, 3);
+      $items[$tjiid]->addRemoteMapping($data_item_key, $gorder_id);
+    }
   }
 
   /**
@@ -365,24 +373,19 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Job that will be mapped to remote jobs.
    */
   public function mapGengoJobs(TMGMTJob $job) {
-
-    $select = db_select('tmgmt_mygengo_mappings', 'm');
-    $select->addExpression('COUNT(*)');
-    $select->condition('tjid', $job->tjid);
-    $select->condition('gjid', '0', '>');
-    $mapped_jobs_count = $select->execute()->fetchField();
-
     // Search for placeholder item.
-    $select = db_select('tmgmt_remote', 'm');
-    $select->fields('m', array(self::GENGO_ORDER_ID_FIELD));
-    $select->condition('tjid', $job->tjid);
-    $select->condition(self::GENGO_JOB_ID_FIELD, 0);
+    // @todo: Use an API for this?
+    $result = db_select('tmgmt_remote', 'm')
+      ->fields('m', array(self::GENGO_ORDER_ID_FIELD))
+      ->condition('tjid', $job->tjid)
+      ->condition(self::GENGO_JOB_ID_FIELD, '')
+      ->distinct()
+      ->execute();
 
     $connector = new TMGMTGengoConnector($job->getTranslator());
 
-    // If we have a placeholder we want to fetch gengo job ids.
-    if ($gorder_id = $select->execute()->fetchField()) {
-
+    // If we have placeholders we want to fetch gengo job ids.
+    foreach ($result->fetchCol() as $gorder_id) {
       $response = NULL;
 
       try {
@@ -416,12 +419,8 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $gengo_job_ids += $response->order->jobs_revising;
       }
 
-      // Remove the placeholder record if we got mappings for all the jobs.
-      if ($mapped_jobs_count == $response->order->total_jobs) {
-        db_delete('tmgmt_remote')->condition(self::GENGO_ORDER_ID_FIELD, $gorder_id)->execute();
-      }
-
-      $mappings = array();
+      $mappings = entity_get_controller('tmgmt_remote')->loadByRemoteData($gorder_id);
+      // Loop over mappings, look for the remote id and update if necessary.
       foreach ($gengo_job_ids as $gengo_job_id) {
         $mappings[] = array(
           'tjid' => $job->tjid,
@@ -429,8 +428,6 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
           self::GENGO_ORDER_ID_FIELD => $gorder_id,
         );
       }
-      // Add intial records into the table
-      $this->saveGengoMappings($mappings);
     }
 
     // Get gengo jobs for existing gengo job ids.
