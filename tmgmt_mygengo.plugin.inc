@@ -228,7 +228,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *
    * @param TMGMTJob $job
    *   Job for which to receive translations.
-   * @param array $keys
+   * @param string $keys
    *   Data keys for data item which will be updated with translation.
    * @param array $data
    *   Translated data received from gengo.
@@ -304,20 +304,23 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $key = $response_job->custom_data;
       }
 
-      $this->saveTranslation($job, array_slice(tmgmt_ensure_keys_array($key), 1), $response_job);
+      // Extract job item id and data item key.
+      list($tjid, $tjiid, $data_item_key) = explode('][', $key, 3);
 
-      $mappings[] = array(
-        'tjid' => $job->tjid,
+      $this->saveTranslation($job, $tjiid . '][' . $data_item_key, $response_job);
+
+      $item = tmgmt_job_item_load($tjiid);
+      $item->addRemoteMapping($data_item_key, NULL, array(
         // Yes, this is not a joke, they really return string value "NULL" in
         // case of a machine translation.
         self::GENGO_JOB_ID_FIELD => $response_job->job_id == 'NULL' ? 0 : $response_job->job_id,
-        'data_item_key' => tmgmt_ensure_keys_string($key),
-      );
+        'word_count' => $response_job->unit_count,
+        'remote_data' => array(
+          'credits' => $response_job->credits,
+          'tier' => $response_job->tier,
+        ),
+      ));
     }
-
-    // For jobs received upon submission we create gengo mappings differently
-    // than in case of regular translation cycle.
-    $this->saveGengoMappings($mappings);
   }
 
   /**

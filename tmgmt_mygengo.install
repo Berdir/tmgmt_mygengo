@@ -73,6 +73,11 @@ function tmgmt_mygengo_update_7003() {
 
   $insert = db_insert('tmgmt_remote')->fields(array('tjid', 'tjiid', 'data_item_key', 'remote_identifier_1', 'remote_identifier_2'));
   foreach ($result as $mapping) {
+    // Ignore placeholder mappings.
+    if (empty($mapping->data_item_key)) {
+      continue;
+    }
+
     // Extract job item id and data item key.
     list(, $tjiid, $data_item_key) = explode('][', $mapping->data_item_key, 3);
     $insert->values(array(
