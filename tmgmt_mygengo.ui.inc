@@ -32,9 +32,13 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
       $remotes[$key] = $remote;
 
       // Build up duplicates mapping.
+      // @todo: This can't handle duplicates across job items.
       if (!empty($remote->remote_data['duplicates'])) {
         foreach ($remote->remote_data['duplicates'] as $duplicate_key) {
-          $duplicates[str_replace('][', '|', $duplicate_key)] = $remote;
+          list($tjiid, $data_item_key) = explode('][', $duplicate_key, 2);
+          if ($item->tjid == $tjiid) {
+            $duplicates[str_replace('][', '|', $duplicate_key)] = $remote;
+          }
         }
       }
     }
