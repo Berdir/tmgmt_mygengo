@@ -324,31 +324,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
   }
 
   /**
-   * Saves mapping with tmgmt data item and gengo job.
-   *
-   * @param array $mappings
-   *   Array of associated mappings data to save in format:
-   *   - tjid - Translation job id
-   *   - gjid - Gengo translation job id
-   *   - key - Data item key
-   */
-  public function saveGengoMappings(array $mappings) {
-    foreach ($mappings as $mapping) {
-      $select = db_select('tmgmt_remote', 'm')->fields('m', array('tjid'));
-      $select->condition('tjid', $mapping['tjid']);
-      $select->condition(self::GENGO_JOB_ID_FIELD, $mapping[self::GENGO_JOB_ID_FIELD]);
-
-      if ($select->execute()->fetchField()) {
-        drupal_write_record('tmgmt_remote', $mapping, array('tjid', self::GENGO_JOB_ID_FIELD));
-      }
-      else {
-        drupal_write_record('tmgmt_remote', $mapping);
-      }
-    }
-  }
-
-  /**
-   * Creates a placeholder record in the mapping table.
+   * Creates placeholder records in the mapping table.
    *
    * The idea here is not to introduce additional storage to temporarily store
    * gegngo order id before we get gengo job ids.
@@ -377,64 +353,68 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    */
   public function mapGengoJobs(TMGMTJob $job) {
     // Search for placeholder item.
-    // @todo: Use an API for this?
-    $result = db_select('tmgmt_remote', 'm')
-      ->fields('m', array(self::GENGO_ORDER_ID_FIELD))
-      ->condition('tjid', $job->tjid)
-      ->condition(self::GENGO_JOB_ID_FIELD, '')
-      ->distinct()
-      ->execute();
+    $remotes = entity_get_controller('tmgmt_remote')->loadByLocalData($job->tjid);
 
     $connector = new TMGMTGengoConnector($job->getTranslator());
 
-    // If we have placeholders we want to fetch gengo job ids.
-    foreach ($result->fetchCol() as $gorder_id) {
-      $response = NULL;
+    // Collect unique order id's and job ids.
+    $order_ids = array();
+    $job_ids = array();
+    $new_job_ids = array();
+    foreach ($remotes as $remote) {
+      if (!empty($remote->remote_identifier_1) && !isset($order_ids[$remote->remote_identifier_1])) {
+        $order_ids[$remote->remote_identifier_1] = $order_ids[$remote->remote_identifier_1];
+      }
+      if (!empty($remote->remote_identifier_2)) {
+        $job_ids[] = $remote->remote_identifier_2;
+      }
+    }
 
+    // If we have orders we want to check for new job ids.
+    foreach ($order_ids as $gorder_id) {
       try {
         $response = $connector->getOrder($gorder_id);
+        // No jobs yet created at Gengo side. Nothing to do.
+        if ($response->order->jobs_queued == $response->order->total_jobs) {
+          return;
+        }
+
+        // Collect job ids of that job. Use array_merge() as we have numerical
+        // array keys.
+        $order_job_ids = array();
+        if (!empty($response->order->jobs_available)) {
+          $order_job_ids = array_merge($order_job_ids, $response->order->jobs_available);
+        }
+        if (!empty($response->order->jobs_pending)) {
+          $order_job_ids = array_merge($order_job_ids, $response->order->jobs_pending);
+        }
+        if (!empty($response->order->jobs_reviewable)) {
+          $order_job_ids = array_merge($order_job_ids, $response->order->jobs_reviewable);
+        }
+        if (!empty($response->order->jobs_approved)) {
+          $order_job_ids = array_merge($order_job_ids, $response->order->jobs_approved);
+        }
+        if (!empty($response->order->jobs_revising)) {
+          $order_job_ids = array_merge($order_job_ids, $response->order->jobs_revising);
+        }
+
+        // Keep a record of new job ids and their mappings and add them to the
+        // job id list.
+        foreach (array_diff($order_job_ids, $job_ids) as $new_job_id) {
+          $job_ids[$new_job_id] = $new_job_id;
+          $new_job_ids[$new_job_id] = $gorder_id;
+        }
+
       }
       catch (TMGMTException $e) {
         watchdog_exception('tmgmt_mygengo', $e);
         drupal_set_message($e->getMessage(), 'error');
-        return;
-      }
-
-      // No jobs yet created at Gengo side. Nothing to do.
-      if ($response->order->jobs_queued == $response->order->total_jobs) {
-        return;
-      }
-
-      $gengo_job_ids = array();
-      if (!empty($response->order->jobs_available)) {
-        $gengo_job_ids += $response->order->jobs_available;
-      }
-      if (!empty($response->order->jobs_pending)) {
-        $gengo_job_ids += $response->order->jobs_pending;
-      }
-      if (!empty($response->order->jobs_reviewable)) {
-        $gengo_job_ids += $response->order->jobs_reviewable;
-      }
-      if (!empty($response->order->jobs_approved)) {
-        $gengo_job_ids += $response->order->jobs_approved;
-      }
-      if (!empty($response->order->jobs_revising)) {
-        $gengo_job_ids += $response->order->jobs_revising;
-      }
-
-      $mappings = entity_get_controller('tmgmt_remote')->loadByRemoteData($gorder_id);
-      // Loop over mappings, look for the remote id and update if necessary.
-      foreach ($gengo_job_ids as $gengo_job_id) {
-        $mappings[] = array(
-          'tjid' => $job->tjid,
-          self::GENGO_JOB_ID_FIELD => $gengo_job_id,
-          self::GENGO_ORDER_ID_FIELD => $gorder_id,
-        );
+        continue;
       }
     }
 
     // Get gengo jobs for existing gengo job ids.
-    $response = $connector->getJobs($this->getGengoJobIds($job->tjid));
+    $response = $connector->getJobs($job_ids);
 
     // Gengo did not provide any mapping data, do nothing.
     // This only happens in the case that Gengo is unreachable.
@@ -442,59 +422,49 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
       return;
     }
 
-    // update mappings and save any translations
-    $mappings = array();
+    // Update mappings and save any translations.
     foreach ($response->jobs as $key => $response_job) {
-      $mappings[] = array(
-        'tjid' => $job->tjid,
-        self::GENGO_JOB_ID_FIELD => $response_job->job_id,
-        'data_item_key' => $response_job->custom_data,
-      );
+      // Extract job item id and data item key.
+      list(, $tjiid, $data_item_key) = explode('][', $response_job->custom_data, 3);
 
-      if (is_numeric($key)) {
-        $key = $response_job->custom_data;
+      // If this is a new job, look for a remote mapping based on the data item
+      // key and update it.
+      if (isset($new_job_id[$response_job->job_id])) {
+
+        $matching_remote = NULL;
+        foreach ($remotes as $remote) {
+          if ($remote->data_item_key == $data_item_key) {
+            $matching_remote = $remote;
+            break;
+          }
+        }
+
+        // We don't have a remote mapping yet, create one.
+        if (!$matching_remote) {
+          $item = tmgmt_job_item_load($tjiid);
+          $item->addRemoteMapping($data_item_key, NULL, array(
+            'remote_identifier_2' => $response_job->job_id,
+            'word_count' => $response_job->unit_count,
+            'remote_data' => array(
+              'credits' => $response_job->credits,
+              'tier' => $response_job->tier,
+            ),
+            // @todo: Add remote_url.
+          ));
+        }
+        // We have a mapping, update it.
+        else {
+          $matching_remote->remote_identifier_2 = $response_job->job_id;
+          $matching_remote->word_count = $response_job->unit_count;
+          $matching_remote->remote_data = array(
+            'credits' => $response_job->credits,
+            'tier' => $response_job->tier,
+          );
+          $matching_remote->save();
+        }
       }
-      $key = array_slice(tmgmt_ensure_keys_array($key), 1);
-      $this->saveTranslation($job, $key, $response_job);
+      $this->saveTranslation($job, $tjiid . '][' . $data_item_key, $response_job);
     }
-    // Update mapping records
-    $this->saveGengoMappings($mappings);
   }
 
-  /**
-   * Gets gengo job ids for a tmgmt job.
-   *
-   * @param int $tjid
-   *   TMGMT Job id.
-   *
-   * @return array
-   *   Array of gengo job ids.
-   */
-  public function getGengoJobIds($tjid) {
-    $select = db_select('tmgmt_remote', 'm')->fields('m', array(self::GENGO_JOB_ID_FIELD));
-    $select->condition('tjid', $tjid);
-    $select->condition('gjid', '0', '>');
-
-    return $select->execute()->fetchCol();
-  }
-
-  /**
-   * Gets gengo mappings not being mapped to local data items.
-   *
-   * @param int $tjid
-   *   Job id for which to get mapping data.
-   *
-   * @return array
-   *   Array of mapping records keyd by gengo job ids.
-   */
-  public function getMappedGengoData($tjid) {
-    $select = db_select('tmgmt_remote', 'm');
-    $select->fields('m', array('tjid', 'data_item_key'));
-    $select->addField('m', self::GENGO_ORDER_ID_FIELD, 'gorder_id');
-    $select->addField('m', self::GENGO_JOB_ID_FIELD, 'gjid');
-    $select->condition('tjid', $tjid);
-    $select->condition('data_item_key', '', '!=');
-
-    return $select->execute()->fetchAllAssoc('gjid');
-  }
 }
