@@ -40,7 +40,7 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
       }
 
       $gengo_job_id = $mapping_data[$form_key]->remote_identifier_2;
-      $data_item = $item->getData($mapping_data[$form_key]->data_item_key);
+      $data_item = $item->getData(tmgmt_ensure_keys_array($mapping_data[$form_key]->data_item_key));
 
       if ($data_item['#status'] == TMGMT_DATA_ITEM_STATE_REVIEWED || $data_item['#status'] == TMGMT_DATA_ITEM_STATE_PENDING) {
         $form['review'][$key][$form_key]['actions'][$gengo_job_id . '_comment_form'] = array(
