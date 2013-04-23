@@ -18,7 +18,6 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
     $job = $item->getJob();
 
     $remotes = array();
-    $duplicates = array();
     $tmgmt_remote_controller = entity_get_controller('tmgmt_remote');
     foreach ($tmgmt_remote_controller->loadByLocalData($item->tjid, $item->tjiid) as $remote) {
       // Ignore remote mappings that do not yet have a Gengo job id.
@@ -30,17 +29,6 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
       $key = str_replace('][', '|', $remote->data_item_key);
       // Add into mapping data array.
       $remotes[$key] = $remote;
-
-      // Build up duplicates mapping.
-      // @todo: This can't handle duplicates across job items.
-      if (!empty($remote->remote_data['duplicates'])) {
-        foreach ($remote->remote_data['duplicates'] as $duplicate_key) {
-          list($tjiid, $data_item_key) = explode('][', $duplicate_key, 2);
-          if ($item->tjiid == $tjiid) {
-            $duplicates[str_replace('][', '|', $data_item_key)] = $remote;
-          }
-        }
-      }
     }
 
     $form['#attached']['js'][] = drupal_get_path('module', 'tmgmt_mygengo') . '/js/tmgmt_mygengo_comments.js';
@@ -49,12 +37,7 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
     $i = 0;
     foreach (element_children($form['review']) as $key) {
       foreach (element_children($form['review'][$key]) as $form_key) {
-
-        // Check if this is a duplicate of another item.
-        if (isset($duplicates[$form_key])) {
-          $element = &$form['review'][$key][$form_key];
-          $element['#parent_label'][count($element['#parent_label']) - 1] .= ' ' . t('Duplicate');
-        }
+        // @todo: Handle duplicates.
 
         // If we do not have mapping data yet for the data item continue.
         if (!isset($remotes[$form_key])) {
