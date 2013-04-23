@@ -139,11 +139,8 @@ function tmgmt_mygengo_add_revision_form_submit($form, &$form_state) {
     $connector = new TMGMTGengoConnector($job->getTranslator());
     $connector->reviseJob($gengo_job_id, $form_state['values'][$gengo_job_id . '_comment']);
 
-    $data_item_key = tmgmt_ensure_keys_array($form_state['values'][$gengo_job_id . '_data_item_key']);
-    $data = $item->getData($data_item_key);
-    $data['#status'] = TMGMT_DATA_ITEM_STATE_PENDING;
-
-    $item->updateData($data_item_key, $data);
+    $data_item_key = tmgmt_ensure_keys_array($form_state['values'][$gengo_job_id . '_data_item_key']);;
+    $item->updateData($data_item_key, array('#status' => TMGMT_DATA_ITEM_STATE_PENDING));
     $item->save();
 
     $form_state['submitted_gengo_action'] = 'revision';
