@@ -36,8 +36,8 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
       if (!empty($remote->remote_data['duplicates'])) {
         foreach ($remote->remote_data['duplicates'] as $duplicate_key) {
           list($tjiid, $data_item_key) = explode('][', $duplicate_key, 2);
-          if ($item->tjid == $tjiid) {
-            $duplicates[str_replace('][', '|', $duplicate_key)] = $remote;
+          if ($item->tjiid == $tjiid) {
+            $duplicates[str_replace('][', '|', $data_item_key)] = $remote;
           }
         }
       }
@@ -53,7 +53,7 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
         // Check if this is a duplicate of another item.
         if (isset($duplicates[$form_key])) {
           $element = &$form['review'][$key][$form_key];
-          $element['#parent_label'][count($element['#parent_label'])] .= ' ' . t('Duplicate');
+          $element['#parent_label'][count($element['#parent_label']) - 1] .= ' ' . t('Duplicate');
         }
 
         // If we do not have mapping data yet for the data item continue.
