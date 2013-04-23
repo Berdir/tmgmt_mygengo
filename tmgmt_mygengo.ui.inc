@@ -15,23 +15,13 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
    * Implements TMGMTTranslatorUIControllerInterface::reviewForm().
    */
   public function reviewForm($form, &$form_state, TMGMTJobItem $item) {
-    $job = $item->getJob();
-    /* @var TMGMTMyGengoTranslatorPluginController $plugin */
-    $plugin = $job->getTranslatorController();
-
     $mapping_data = array();
-    foreach ($plugin->getMappedGengoData($job->tjid) as $info) {
-      $key_array = tmgmt_ensure_keys_array($info->data_item_key);
-      // Remove tjid.
-      array_shift($key_array);
-      // Remove tjjid.
-      array_shift($key_array);
-      // Store data item key for further use.
-      $info->key_array = $key_array;
+    $tmgmt_remote_controller = entity_get_controller('tmgmt_remote');
+    foreach ($tmgmt_remote_controller->loadByLocalData($item->tjid, $item->tjiid) as $remote) {
       // Create key which is used in the review form.
-      $key = str_replace('][', '|', implode('|', $key_array));
+      $key = str_replace('][', '|', implode('|', $remote->data_item_key));
       // Add into mapping data array.
-      $mapping_data[$key] = $info;
+      $mapping_data[$key] = $remote;
     }
 
     $form['#attached']['js'][] = drupal_get_path('module', 'tmgmt_mygengo') . '/js/tmgmt_mygengo_comments.js';
@@ -48,7 +38,7 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
       }
 
       $gengo_job_id = $mapping_data[$form_key]->gjid;
-      $data_item = $item->getData($mapping_data[$form_key]->key_array);
+      $data_item = $item->getData($mapping_data[$form_key]->date_item_key);
 
       if ($data_item['#status'] == TMGMT_DATA_ITEM_STATE_REVIEWED || $data_item['#status'] == TMGMT_DATA_ITEM_STATE_PENDING) {
         $form['review'][$key][$form_key]['actions'][$gengo_job_id . '_comment_form'] = array(
