@@ -139,9 +139,11 @@ function tmgmt_mygengo_add_revision_form_submit($form, &$form_state) {
     $connector = new TMGMTGengoConnector($job->getTranslator());
     $connector->reviseJob($gengo_job_id, $form_state['values'][$gengo_job_id . '_comment']);
 
-    $data = $item->getData($form_state['values'][$gengo_job_id . '_key_array']);
+    $data_item_key = tmgmt_ensure_keys_array($form_state['values'][$gengo_job_id . '_data_item_key']);
+    $data = $item->getData($data_item_key);
     $data['#status'] = TMGMT_DATA_ITEM_STATE_PENDING;
-    $item->updateData($form_state['values'][$gengo_job_id . '_key_array'], $data);
+
+    $item->updateData($data_item_key, $data);
     $item->save();
 
     $form_state['submitted_gengo_action'] = 'revision';
@@ -225,7 +227,7 @@ function _tmgmt_mygengo_poll_submit($form, &$form_state) {
   // Fetch everything for this job, this updates the mapping and saves
   // translations if there are any.
   $controller->fetchGengoJobs($job);
-  drupal_set_message(t('All available translations from Gengo have been fetched.'));
+  drupal_set_message(t('All available translations from Gengo have been polled.'));
 }
 
 /**

@@ -276,9 +276,6 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   List of gengo jobs received.
    */
   protected function processGengoJobsUponTranslationRequest(TMGMTJob $job, $response_jobs) {
-
-    $mappings = array();
-
     foreach ($response_jobs as $key => $response_job) {
 
       // Duplicate content has been submitted.
@@ -363,10 +360,10 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     $new_job_ids = array();
     foreach ($remotes as $remote) {
       if (!empty($remote->remote_identifier_1) && !isset($order_ids[$remote->remote_identifier_1])) {
-        $order_ids[$remote->remote_identifier_1] = $order_ids[$remote->remote_identifier_1];
+        $order_ids[$remote->remote_identifier_1] = $remote->remote_identifier_1;
       }
       if (!empty($remote->remote_identifier_2)) {
-        $job_ids[] = $remote->remote_identifier_2;
+        $job_ids[$remote->remote_identifier_2] = $remote->remote_identifier_2;
       }
     }
 

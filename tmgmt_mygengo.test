@@ -355,23 +355,14 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     // Request translation which also must create remote job mappings.
     $job->requestTranslation();
 
-    /**
-     * @var TMGMTMyGengoTranslatorPluginController $plugin
-     */
-    $plugin = $job->getTranslatorController();
-    $mapping = NULL;
-
     // Get mapping for first data item of second job item -> Title "Nice day".
-    foreach ($plugin->getMappedGengoData($job->tjid) as $gjid => $mapping) {
-      if ($mapping->data_item_key == $job->tjid . '][' . $item->tjiid . '][title') {
-        break;
-      }
-    }
+    $remotes = entity_get_controller('tmgmt_remote')->loadByLocalData($job->tjid, $item->tjiid, 'title');
+    $remote = reset($remotes);
 
-    $this->drupalPostAJAX('admin/config/regional/tmgmt/items/' . $item->tjiid, array(), array($mapping->gjid . '_comment_form' => '✉'));
+    $this->drupalPostAJAX('admin/config/regional/tmgmt/items/' . $item->tjiid, array(), array($remote->remote_identifier_2 . '_comment_form' => '✉'));
     $this->assertText(t('New comment'));
     $comment = $this->randomName();
-    $this->drupalPostAJAX(NULL, array($mapping->gjid . '_comment' => $comment), array($mapping->gjid . '_submit' => t('Submit comment')));
+    $this->drupalPostAJAX(NULL, array($remote->remote_identifier_2 . '_comment' => $comment), array($remote->remote_identifier_2 . '_submit' => t('Submit comment')));
 
     // Reload the review form again and check if comment text is present.
     $this->drupalGet('admin/config/regional/tmgmt/items/' . $item->tjiid);
@@ -384,17 +375,16 @@ class TMGMTMyGengoTestCase extends TMGMTBaseTestCase {
     $data = new stdClass();
     $data->status = 'reviewable';
     $data->body_tgt = 'Nice day translated';
-    $key = tmgmt_ensure_keys_array($mapping->data_item_key);
-    array_shift($key);
+    $key = $item->tjiid . '][' . $remote->data_item_key;
     $plugin->saveTranslation($job, $key, $data);
 
     // Request a review.
     $comment = $this->randomName();
-    $this->drupalPostAJAX('admin/config/regional/tmgmt/items/' . $item->tjiid, array(), array($mapping->gjid . '_revision_form' => '✍'));
-    $this->drupalPostAJAX(NULL, array($mapping->gjid . '_comment' => $comment), array($mapping->gjid . '_submit' => t('Request revision')));
+    $this->drupalPostAJAX('admin/config/regional/tmgmt/items/' . $item->tjiid, array(), array($remote->remote_identifier_2 . '_revision_form' => '✍'));
+    $this->drupalPostAJAX(NULL, array($remote->remote_identifier_2 . '_comment' => $comment), array($remote->remote_identifier_2 . '_submit' => t('Request revision')));
 
     $job = tmgmt_job_load($job->tjid);
-    $data = $job->getData($key);
+    $data = $job->getData(tmgmt_ensure_keys_array($key));
     // Test the data item status - should be back to pending.
     $this->assertEqual($data[$item->tjiid]['#status'], TMGMT_DATA_ITEM_STATE_PENDING);
     // Reload the review form again and check if comment text is present.
