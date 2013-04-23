@@ -17,10 +17,6 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    */
   protected $serviceComment;
 
-
-  const GENGO_ORDER_ID_FIELD = 'remote_identifier_1';
-  const GENGO_JOB_ID_FIELD = 'remote_identifier_2';
-
   /**
    * Implements TMGMTDefaultTranslatorPluginController::getDefaultRemoteLanguagesMappings().
    */
@@ -80,7 +76,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $this->setServiceComment($job->settings['comment']);
       }
 
-       $this->sendJob($job);
+      $this->sendJob($job);
 
       $job->submitted(t('Job has been submitted.'));
     }
@@ -161,6 +157,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
     $translations = array();
     $sources = array();
     $position = 0;
+    $duplicates = array();
 
     foreach ($data as $key => $value) {
       if (isset($value['#translate']) && $value['#translate'] === FALSE) {
@@ -170,16 +167,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
       if (!$quote_only) {
         // Detect duplicate source strings and add a mapping for them.
         if ($duplicate_key = array_search($value['#text'], $sources)) {
-
-          // Only add the actual mapping in case we are not requesting a quote.
-          if (!$quote_only) {
-            // Get the job item.
-            // @todo This is not very nice. We should possibly support this
-            //   directly on the job.
-            $tjiid = substr($key, 0, strpos($key, ']'));
-            $job_item = tmgmt_job_item_load($tjiid);
-            $job_item->addRemoteMapping($key, $duplicate_key);
-          }
+          $duplicates[$duplicate_key][] = $key;
           continue;
         }
       }
@@ -217,7 +205,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $this->processGengoJobsUponTranslationRequest($job, $response->jobs);
       }
       elseif (isset($response->order_id)) {
-        $this->initGengoMapping($job, $response->order_id, $translations);
+        $this->initGengoMapping($job, $response->order_id, $translations, $duplicates);
       }
       return $response;
     }
@@ -228,12 +216,14 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *
    * @param TMGMTJob $job
    *   Job for which to receive translations.
-   * @param string $keys
+   * @param string $key
    *   Data keys for data item which will be updated with translation.
    * @param array $data
    *   Translated data received from gengo.
+   * @param TMGMTRemote $remote
+   *   (optional) A remote mapping that should be considered for duplicates.
    */
-  public function saveTranslation(TMGMTJob $job, $keys, $data) {
+  public function saveTranslation(TMGMTJob $job, $key, $data) {
     if ($data->status == 'approved' || $data->status == 'reviewable') {
       // If the status is approved or reviewable, we expect a body_tgt property,
       // abort and log if it doesn't exist.
@@ -241,22 +231,17 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
         $job->addMessage('Callback called for @key and status @status without translation.', array('@key' => $data->custom_data, '@status' => $data->status));
         return;
       }
-      $job->addTranslatedData(array('#text' => $data->body_tgt), $keys);
+      $job->addTranslatedData(array('#text' => $data->body_tgt), $key);
 
       // Look for duplicated strings that were saved with a mapping to this key.
-      // @todo Allow additional conditions in TmgmtJob::getRemoteMappings()?
-      $query = new EntityFieldQuery();
-      $query->entityCondition('entity_type', 'tmgmt_remote');
-      $query->propertyCondition('tjid', $job->tjid);
-      $query->propertyCondition('remote_identifier_1', tmgmt_ensure_keys_string($keys));
-
-      $result = $query->execute();
-
-      if (isset($result['tmgmt_remote'])) {
-        $remote_mappings = entity_load('tmgmt_remote', array_keys($result['tmgmt_remote']));
+      // @todo: Refactor this method to accept the remote instead of $key?
+      list($tjiid, $data_item_key) = explode('][', $key, 2);
+      $remotes = entity_get_controller('tmgmt_remote')->loadByLocalData($job->tjid, $tjiid, $data_item_key);
+      $remote = reset($remotes);
+      if ($remote && !empty($remote->remote_data['duplicates'])) {
         // If we found any mappings, also add the translation for those.
-        foreach ($remote_mappings as $remote_mapping) {
-          $job->addTranslatedData(array('#text' => $data->body_tgt), $remote_mapping->data_item_key);
+        foreach ($remote->remote_data['duplicates'] as $duplicate_key) {
+          $job->addTranslatedData(array('#text' => $data->body_tgt), $duplicate_key);
         }
       }
     }
@@ -274,14 +259,15 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Local job that is going to be processed.
    * @param array $response_jobs
    *   List of gengo jobs received.
+   * @param array $duplicates
+   *   Array of duplicate mappings.
    */
-  protected function processGengoJobsUponTranslationRequest(TMGMTJob $job, $response_jobs) {
+  protected function processGengoJobsUponTranslationRequest(TMGMTJob $job, $response_jobs, array $duplicates) {
     foreach ($response_jobs as $key => $response_job) {
 
       // Duplicate content has been submitted.
       if (isset($response_job->duplicate)) {
-        // @todo We need to handle duplicates in some way as client will not
-        //   receive translation for this item.
+        // @todo Currently handled manually, so this should never occur.
         continue;
       }
 
@@ -302,19 +288,20 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
       }
 
       // Extract job item id and data item key.
-      list($tjid, $tjiid, $data_item_key) = explode('][', $key, 3);
+      list(, $tjiid, $data_item_key) = explode('][', $key, 3);
 
-      $this->saveTranslation($job, $tjiid . '][' . $data_item_key, $response_job);
-
+      $item_id_data_key = $tjiid . '][' . $data_item_key;
+      $this->saveTranslation($job, $item_id_data_key, $response_job);
       $item = tmgmt_job_item_load($tjiid);
       $item->addRemoteMapping($data_item_key, NULL, array(
         // Yes, this is not a joke, they really return string value "NULL" in
         // case of a machine translation.
-        self::GENGO_JOB_ID_FIELD => $response_job->job_id == 'NULL' ? 0 : $response_job->job_id,
+        'remote_identifier_2' => $response_job->job_id == 'NULL' ? 0 : $response_job->job_id,
         'word_count' => $response_job->unit_count,
         'remote_data' => array(
           'credits' => $response_job->credits,
           'tier' => $response_job->tier,
+          'duplicates' => isset($duplicates[$item_id_data_key]) ? $duplicates[$item_id_data_key] : array(),
         ),
       ));
     }
@@ -332,13 +319,20 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    *   Gengo job id.
    * @param array $translations
    *   Array of requested translations.
+   * @param array $duplicates
+   *   Array of duplicate mappings.
    */
-  protected function initGengoMapping(TMGMTJob $job, $gorder_id, array $translations) {
+  protected function initGengoMapping(TMGMTJob $job, $gorder_id, array $translations, array $duplicates) {
     $items = $job->getItems();
     foreach ($translations as $key => $translation) {
       // Extract job item id and data item key.
       list(, $tjiid, $data_item_key) = explode('][', $key, 3);
-      $items[$tjiid]->addRemoteMapping($data_item_key, $gorder_id);
+      $mapping_data = array();
+      $item_id_data_key = $tjiid . '][' . $data_item_key;
+      if (isset($duplicates[$item_id_data_key])) {
+        $mapping_data['remote_data']['duplicates'] = $duplicates[$item_id_data_key];
+      }
+      $items[$tjiid]->addRemoteMapping($data_item_key, $gorder_id, $mapping_data);
     }
   }
 

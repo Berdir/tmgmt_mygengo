@@ -20,6 +20,11 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
     $remotes = array();
     $tmgmt_remote_controller = entity_get_controller('tmgmt_remote');
     foreach ($tmgmt_remote_controller->loadByLocalData($item->tjid, $item->tjiid) as $remote) {
+      // Ignore remote mappings that do not yet have a Gengo job id.
+      if (empty($remote->remote_identifier_2)) {
+        continue;
+      }
+
       // Create key which is used in the review form.
       $key = str_replace('][', '|', $remote->data_item_key);
       // Add into mapping data array.
