@@ -351,7 +351,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
    * @param TMGMTJob $job
    *   Job that will be mapped to remote jobs.
    */
-  public function mapGengoJobs(TMGMTJob $job) {
+  public function fetchGengoJobs(TMGMTJob $job) {
     // Search for placeholder item.
     $remotes = entity_get_controller('tmgmt_remote')->loadByLocalData($job->tjid);
 

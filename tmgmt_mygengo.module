@@ -222,35 +222,10 @@ function _tmgmt_mygengo_poll_submit($form, &$form_state) {
    */
   $controller = $job->getTranslator()->getController();
 
-  // Try to map jobs that have not yet been mapped.
-  $controller->mapGengoJobs($job);
-
-  // Get all available mappings.
-  $gengo_mappings = $controller->getMappedGengoData($job->tjid);
-
-  $connector = new TMGMTGengoConnector($job->getTranslator());
-  $response = NULL;
-  // Get Translations for mapped data.
-  if (empty($gengo_mappings)) {
-    drupal_set_message(t('Gengo service has not yet queued the jobs. Please try again later.'));
-    return;
-  }
-
-  try {
-    $response = $connector->getJobs(array_keys($gengo_mappings));
-    if (!empty($response->jobs)) {
-      foreach ($response->jobs as $response_job) {
-        $controller->saveTranslation($job, $gengo_mappings[$response_job->job_id]->data_item_key, $response_job);
-      }
-
-      drupal_set_message(t('All available translations from Gengo have been polled.'));
-    }
-  }
-  catch (TMGMTException $e) {
-    watchdog_exception('tmgmt_mygengo', $e);
-    drupal_set_message($e->getMessage(), 'error');
-  }
-
+  // Fetch everything for this job, this updates the mapping and saves
+  // translations if there are any.
+  $controller->fetchGengoJobs($job);
+  drupal_set_message(t('All available translations from Gengo have been fetched.'));
 }
 
 /**
