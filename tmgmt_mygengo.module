@@ -265,10 +265,12 @@ function tmgmt_mygengo_callback() {
     return;
   }
 
-  // Create a mapping for this job if we don't have one yet.
-  if (!entity_get_controller('tmgmt_remote')->loadByLocalData($tjid, $tjiid, $data_item_key)) {
+  $mappings = entity_get_controller('tmgmt_remote')->loadByLocalData($tjid, $tjiid, $data_item_key);
+  $mapping = reset($mappings);
+  // Create a mapping for this job if we don't have one yet. Should not happen
+  // as we pre-create mappings with the order id..
+  if (!$mapping) {
     $item = tmgmt_job_item_load($tjiid);
-    // @todo: Pre-create mappings for the order so that we have the order id?
     $item->addRemoteMapping($data_item_key, NULL, array(
       'remote_identifier_2' => $data->job_id,
       'word_count' => $data->unit_count,
@@ -278,6 +280,15 @@ function tmgmt_mygengo_callback() {
       ),
       // @todo: Add remote_url.
     ));
+  }
+  elseif (empty($mapping->remote_identifier_2)) {
+    $mapping->remote_identifier_2 = $data->job_id;
+    $mapping->word_count = $data->unit_count;
+    $mapping->remote_data = array(
+      'credits' => $data->credits,
+      'tier' => $data->tier,
+    );
+    $mapping->save();
   }
 
   /**
