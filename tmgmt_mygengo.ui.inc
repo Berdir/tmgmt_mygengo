@@ -15,11 +15,13 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
    * Implements TMGMTTranslatorUIControllerInterface::reviewForm().
    */
   public function reviewForm($form, &$form_state, TMGMTJobItem $item) {
+    $job = $item->getJob();
+
     $mapping_data = array();
     $tmgmt_remote_controller = entity_get_controller('tmgmt_remote');
     foreach ($tmgmt_remote_controller->loadByLocalData($item->tjid, $item->tjiid) as $remote) {
       // Create key which is used in the review form.
-      $key = str_replace('][', '|', implode('|', $remote->data_item_key));
+      $key = str_replace('][', '|', $remote->data_item_key);
       // Add into mapping data array.
       $mapping_data[$key] = $remote;
     }
@@ -37,8 +39,8 @@ class TMGMTMyGengoTranslatorUIController extends TMGMTDefaultTranslatorUIControl
         continue;
       }
 
-      $gengo_job_id = $mapping_data[$form_key]->gjid;
-      $data_item = $item->getData($mapping_data[$form_key]->date_item_key);
+      $gengo_job_id = $mapping_data[$form_key]->remote_identifier_2;
+      $data_item = $item->getData($mapping_data[$form_key]->data_item_key);
 
       if ($data_item['#status'] == TMGMT_DATA_ITEM_STATE_REVIEWED || $data_item['#status'] == TMGMT_DATA_ITEM_STATE_PENDING) {
         $form['review'][$key][$form_key]['actions'][$gengo_job_id . '_comment_form'] = array(
