@@ -258,10 +258,8 @@ function tmgmt_mygengo_callback() {
   elseif (empty($remote->remote_identifier_2)) {
     $remote->remote_identifier_2 = $data->job_id;
     $remote->word_count = $data->unit_count;
-    $remote->remote_data = array(
-      'credits' => $data->credits,
-      'tier' => $data->tier,
-    );
+    $remote->remote_data['credits'] = $data->credits;
+    $remote->remote_data['tier'] = $data->tier;
     $remote->save();
   }
 

@@ -202,7 +202,7 @@ class TMGMTMyGengoTranslatorPluginController extends TMGMTDefaultTranslatorPlugi
       $response = $connector->submitJob($translations);
       // If we already receive jobs, process them.
       if (!empty($response->jobs)) {
-        $this->processGengoJobsUponTranslationRequest($job, $response->jobs);
+        $this->processGengoJobsUponTranslationRequest($job, $response->jobs, $duplicates);
       }
       elseif (isset($response->order_id)) {
         $this->initGengoMapping($job, $response->order_id, $translations, $duplicates);
